@@ -704,21 +704,21 @@ I mainly used OrthoFinder to generate files that could be used in CAFE3
 
 ```
 library(ape)
-# Load the rooted species tree
+#Load the rooted species tree
 tree <- read.tree("SpeciesTree_rooted.txt")
 
-# Check that it's rooted and binary
+#Check that it's rooted and binary
 stopifnot(is.rooted(tree))
 stopifnot(is.binary(tree))
 
-# Convert to ultrametric with a relaxed clock
+#Convert to ultrametric with a relaxed clock
 ultra_tree <- chronos(tree, lambda = 1, model = "correlated")
 
-# Scale tree so root-to-tip distance = 30 Mya
+#Scale tree so root-to-tip distance = 30 Mya
 tree_age <- max(node.depth.edgelength(ultra_tree))
 ultra_tree$edge.length <- ultra_tree$edge.length * (30 / tree_age)
 
-# Plot and save
+#Plot and save
 plot(ultra_tree, main = "Ultrametric Tree (Root Scaled to 30 Mya)")
 write.tree(ultra_tree, file = "SpeciesTree_ultrametric_30Mya.txt")  
 ``` 
