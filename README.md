@@ -695,7 +695,8 @@ module purge
 ml OrthoFinder/2.5.2 MAFFT/7.505 IQ-TREE/2.2.2.2
 
 # Run:
-orthofinder -f proteins -M msa -T iqtree -t 8 -a 4```
+orthofinder -f proteins -M msa -T iqtree -t 8 -a 4
+```
 
 I mainly used OrthoFinder to generate files that could be used in CAFE3
 
