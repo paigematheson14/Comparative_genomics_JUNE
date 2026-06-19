@@ -338,11 +338,94 @@ First, I used the script `CalcDivergenceFromAlign.pl` script from RepeatMasker (
 
 ```perl calcDivergenceFromAlign.pl -s 01_hilli.divsum 01_hilli.fa.align```
 
-This generates a .divsum file which can be used in createRepeatLandscape.pl, also implemented in RepeatMaskers github page (https://github.com/Dfam-consortium/RepeatMasker/blob/master/util/createRepeatLandscape.pl). You need the genome size for this:
+This generates a .divsum file which can be used in createRepeatLandscape.pl, also implemented in RepeatMaskers github page (https://github.com/Dfam-consortium/RepeatMasker/blob/master/util/createRepeatLandscape.pl). You need the genome size for this. I edited this perl script so that it would generate csv files rather than html files, as I wanted to customise the plots (I've added this customised script in this repository -- it's called 'createRepeatLandscape_generate_csv.pl').
 
-```perl createRepeatLandscape.pl -div 01_hilli.divsum -g 565000000 > 01_hilli_repeat_landscape.html```
+I used this R code to generate the kimura plots for each species:
 
-I wanted to customise the repeat landscapes myself so ran the following R code, but made sure that it corroborated with the above. 
+```
+library(tidyverse)
+
+df <- read_csv("01_hilli_landscape.csv")
+
+#make long
+long_df <- df %>%
+  pivot_longer(
+    -Divergence,
+    names_to = "Class",
+    values_to = "GenomePercent"
+  )
+
+#i don't want to plot every single TE family, group by higher level classifications
+grouped_df <- long_df %>%
+  mutate(
+    Group = case_when(
+      str_detect(Class, "^LINE") ~ "LINEs",
+      str_detect(Class, "^LTR") ~ "LTRs",
+      str_detect(Class, "^DNA") ~ "DNA transposons",
+      Class == "RC/Helitron" ~ "Rolling circle",
+      Class == "Unknown" | Class == "Other" ~ "Unclassified",
+      TRUE ~ "Unclassified"
+    )
+  ) %>%
+  group_by(Divergence, Group) %>%
+  summarise(
+    GenomePercent = sum(GenomePercent),
+    .groups = "drop"
+  )
+
+#group by levels
+grouped_df$Group <- factor(
+  grouped_df$Group,
+  levels = c(
+    "DNA transposons",
+    "LINEs",
+    "LTRs",
+    "Rolling circle",
+    "Unclassified"
+  )
+)
+
+#colours 
+fill_colours <- c(
+  "DNA transposons" = "#e69f00",
+  "LINEs" = "#009e73",
+  "LTRs" = "#0072b2",
+  "Rolling circle" = "#f0e442",
+  "Unclassified" = "#cc79a7"
+)
+
+
+ggplot(grouped_df, aes(x = Divergence, y = GenomePercent, fill = Group)) +
+  geom_col(width = 1, color = "black", linewidth = 0.05) +
+  scale_x_continuous(
+    limits = c(-0.5, 50.5),
+    expand = c(0, 0)
+  ) +
+  scale_y_continuous(
+    expand = c(0, 0)
+  ) +
+  labs(
+    x = "Kimura substitution level (CpG adjusted)",
+    y = "Percent of genome",
+    fill = NULL
+  ) +
+  scale_fill_manual(values = fill_colours) +
+  theme_minimal() +
+  theme(
+    plot.title = element_blank(),
+    axis.title = element_text(size = 18, colour = "black"),
+    axis.text = element_text(size = 14, colour = "black"),
+    axis.line = element_line(colour = "black", linewidth = 0.3),
+    axis.ticks = element_line(colour = "black", linewidth = 0.3),
+    axis.ticks.length = unit(0.2, "cm"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    legend.position = "none"
+  )
+```
+
+
+ 
 
 
 
