@@ -1,5 +1,5 @@
 # Comparative_genomics_JUNE
-This repository details how to run the analyses and create the figures for the comparative genomics chapter. 
+This repository details how to run the analyses and create the figures for the comparative genomics chapter. Also note this website: https://cmdcolin.github.io/awesome-genome-visualization/?latest=true&tag=Comparative that has a bunch of genome visualisation packages
 
 # FIG 2 - RE/TE abundance and diversity, length, and TE-associated BUSCOs
 I identified transposable elements from the un-masked genome assemblies using EarlGrey - https://github.com/TobyBaril/EarlGrey. Earl grey generates longer, non-redundant TE consensus sequences than older software. It feeds the input genome into RepeatMasker and compares it against the Dfam database to identify well-characterised repeat families. It also runs RepeatModeler2 on any remaining unmasked genomic regions to find novel elements unique to the organism and builds initial bases consensus sequences for newly discovered families. It uses CD-HIT to cluster and collapse duplicates, and merges overlapping definitions into a single, high-fidelity, non-redundant TE library. It finally performans a final RepeatMasker pass over to resolve any lingering overlapping annotations and has a lot of 'paper-ready' tools such as TE landscape plots and GC%. 
