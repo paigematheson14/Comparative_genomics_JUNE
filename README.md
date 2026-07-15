@@ -220,6 +220,17 @@ I got the idea for this analysis from https://pmc.ncbi.nlm.nih.gov/articles/PMC1
 
 The goal is to find the intersect of the co-ordinates of BUSCO genes and co-ordinates of TEs. The co-ordinates of TEs are in the .gff file and BUSCO are in the full_table.tsv file.  
 
+### Download raw files from NCBI for Lucilia sericata and Ch. megacephala and map them to the genome assemblies to calculate coverage across the genome
+L. sericata used PACBIO CLR while Ch. megacephala is HiFi, so need to use different flags in minimap 
+
+E.g., for L. sericata use `map-pb` but for Ch. megacephala use `map-hifi`. 
+```
+minimap2 -ax map-pb -t 16 05_sericata.fa L_sericata_reads/L_sericata_all.fastq \
+  | samtools sort -@16 -o 05_sericata.sorted.bam
+samtools index 05_sericata.sorted.bam
+```
+For the calliphora genomes, use `map-ont` using the fastq files and the genome assemblies. 
+
 ### 1. First, I ran BUSCO on the un-masked genomes: 
 ```
 #!/bin/bash -e
