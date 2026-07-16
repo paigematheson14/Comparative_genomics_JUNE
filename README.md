@@ -331,6 +331,27 @@ done
 ```
 This will give you the number of BUSCOs analysed, how many shared coordinates with TEs, and % of the genome this took up. I also used this information to make the RE content vs genome size plots in Fig. 3. 
 
+I realised that I didn't do the BLAST step from Cook et al., 2024 and associated papers so I went back and did this -
+
+```
+#!/bin/bash
+#SBATCH --job-name=blast_hilli
+#SBATCH --account=uow03920
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=64G
+#SBATCH --time=24:00:00
+#SBATCH --output=blast_hilli_%j.out
+#SBATCH --error=blast_hilli_%j.err
+
+ml BLAST 
+
+blastn -query 01_hilli_busco_seqs.fa -db 01_hilli_db \
+  -outfmt 6 -max_target_seqs 50000 -num_threads 8 \
+  -out 01_hilli_busco_blast.out
+```
+P.S., you have to turn the genome FASTA into a blastable database first using makedb 
+
+
 # Fig. 4 - Kimura divergence/TE landscape plots
 This analysis uses the .fa.align files produced by including the -a flag in RepeatMasker earlier. 
 
