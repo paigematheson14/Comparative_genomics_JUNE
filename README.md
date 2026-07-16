@@ -333,17 +333,19 @@ This will give you the number of BUSCOs analysed, how many shared coordinates wi
 
 I realised that I didn't do the BLAST step from Cook et al., 2024 and associated papers so I went back and did this -
 
-Turn the sorted busco files from above into fasta files using bed tools:
-```
-bedtools getfasta -fi 06_megacephala.fa -bed 06_megacephala_busco.sorted.bed -name -fo 06_megacephala_busco_seqs.fa
-```
-
-Turn them into blastable databases:
+Turn the FASTA genomes into into blastable databases:
 ```
 makeblastdb -in 01_hilli.fa -dbtype nucl -parse_seqids -blastdb_version 5 -out 01_hilli_db
 ```
 
-BLAST them against the fasta
+Using the TE/BUSCO intersect file generated above, do this:
+```
+cut -f4 06_megacephala_BUSCO_TE_overlap.bed | sort -u > 06_megacephala_TE_associated_busco_ids.txt
+awk 'NR==FNR{ids[$1]; next} $4 in ids' 06_megacephala_TE_associated_busco_ids.txt 06_megacephala_busco.sorted.bed > 06_megacephala_TE_associated_busco.sorted.bed
+bedtools getfasta -fi 06_megacephala.fa -bed 06_megacephala_TE_associated_busco.sorted.bed -name -fo 06_megacephala_TE_associated_busco_seqs.fa
+```
+
+then BLAST them against the fasta
 
 ```
 #!/bin/bash
@@ -357,7 +359,7 @@ BLAST them against the fasta
 
 ml BLAST 
 
-blastn -query 01_hilli_busco_seqs.fa -db 01_hilli_db \
+blastn -query 01_hilli_TE_associated_busco_seqs.fa -db 01_hilli_db \
   -outfmt 6 -max_target_seqs 50000 -num_threads 8 \
   -out 01_hilli_busco_blast.out
 ```
