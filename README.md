@@ -333,6 +333,18 @@ This will give you the number of BUSCOs analysed, how many shared coordinates wi
 
 I realised that I didn't do the BLAST step from Cook et al., 2024 and associated papers so I went back and did this -
 
+Turn the sorted busco files from above into fasta files using bed tools:
+```
+bedtools getfasta -fi 06_megacephala.fa -bed 06_megacephala_busco.sorted.bed -name -fo 06_megacephala_busco_seqs.fa
+```
+
+Turn them into blastable databases:
+```
+makeblastdb -in 01_hilli.fa -dbtype nucl -parse_seqids -blastdb_version 5 -out 01_hilli_db
+```
+
+BLAST them against the fasta
+
 ```
 #!/bin/bash
 #SBATCH --job-name=blast_hilli
@@ -349,7 +361,6 @@ blastn -query 01_hilli_busco_seqs.fa -db 01_hilli_db \
   -outfmt 6 -max_target_seqs 50000 -num_threads 8 \
   -out 01_hilli_busco_blast.out
 ```
-P.S., you have to turn the genome FASTA into a blastable database first using makedb 
 
 
 # Fig. 4 - Kimura divergence/TE landscape plots
