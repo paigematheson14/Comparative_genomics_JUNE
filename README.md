@@ -328,6 +328,137 @@ done
 
 Then, need to parse the BLAST output into a table that shows the copy number of each busco gene within an assembly. Sort this from lowest to highest. Calculate the mean number of BLAST hits for the first three quartiles of the ordered data so that any buscos with unexpectedly high hits (i.e., those in the fourth quartile) are removed from the average calculation -- this is the baseline for expected BLAST hits. as per Sproul, we will use any busco with 10X the expected BLAST hits as putative te-associated buscos. I then used the coordinates of the TEs from gff file and the coordinates of BUSCOs to see if they intersect with TE annotations.
 
+```
+#!/usr/bin/env Rscript
+
+# List of species directories/file paths
+file_paths <- c(
+  "01_hilli/01_hilli_vs_softmasked.out",
+  "02_quadrimaculata/02_quadrimaculata_vs_softmasked.out",
+  "03_stygia/03_stygia_vs_softmasked.out",
+  "04_vicina/04_vicina_vs_softmasked.out",
+  "05_sericata/05_sericata_vs_softmasked.out",
+  "06_megacephala/06_megacephala_vs_softmasked.out"
+)
+
+analyze_file <- function(file_path) {
+  cat("\n==================================================\n")
+  cat("Processing:", file_path, "\n")
+  cat("==================================================\n")
+  
+  if (!file.exists(file_path)) {
+    cat("WARNING: File not found -> Skipping.\n")
+    return(NULL)
+  }
+  
+  # 1. Read raw BLAST lines
+  blast_lines <- readLines(file_path)
+  if (length(blast_lines) == 0) {
+    cat("WARNING: File is empty -> Skipping.\n")
+    return(NULL)
+  }
+  
+  # 2. Extract full query IDs (Column 1)
+  qseqids <- sub("\t.*", "", blast_lines)
+  
+  # 3. Extract uniquely represented coordinates per query header
+  # Example: 10888at7147::contig00502:10048659-10051706
+  unique_queries <- unique(qseqids)
+  
+  busco_ids_all <- sub("::.*", "", qseqids) # All hits for frequency counting
+  
+  # Parse coordinates mapping table from unique query headers
+  coord_df <- data.frame(
+    query = unique_queries,
+    busco_id = sub("::.*", "", unique_queries),
+    chrom    = sub(".*::([^:]+):.*", "\\1", unique_queries),
+    chromStart = as.numeric(sub(".*:([0-9]+)-[0-9]+$", "\\1", unique_queries)),
+    chromEnd   = as.numeric(sub(".*-[0-9]+$", "", sub(".*:([0-9]+-[0-9]+)$", "\\1", unique_queries))),
+    stringsAsFactors = FALSE
+  )
+  # Fix chromEnd extraction directly
+  coord_df$chromEnd <- as.numeric(sub(".*-", "", sub(".*:", "", unique_queries)))
+  
+  # Deduplicate to 1 coordinate entry per BUSCO ID
+  coord_df <- coord_df[!duplicated(coord_df$busco_id), c("busco_id", "chrom", "chromStart", "chromEnd")]
+  
+  # 4. Count total copy numbers (BLAST hits)
+  counts_table <- table(busco_ids_all)
+  busco_df <- data.frame(
+    busco_id = names(counts_table),
+    copy_number = as.numeric(counts_table),
+    stringsAsFactors = FALSE
+  )
+  
+  # 5. Sort ascending, calculate Q3 baseline, and filter >= 10x candidates
+  busco_df <- busco_df[order(busco_df$copy_number), ]
+  rownames(busco_df) <- NULL
+  
+  q3_cutoff <- quantile(busco_df$copy_number, 0.75)
+  baseline_hits <- mean(busco_df[busco_df$copy_number <= q3_cutoff, ]$copy_number)
+  cutoff_10x <- 10 * baseline_hits
+  
+  te_candidates <- busco_df[busco_df$copy_number >= cutoff_10x, ]
+  
+  if (nrow(te_candidates) > 0) {
+    te_candidates$fold_increase <- round(te_candidates$copy_number / baseline_hits, 2)
+    te_candidates <- te_candidates[order(-te_candidates$copy_number), ]
+    rownames(te_candidates) <- NULL
+  }
+  
+  cat("Total BUSCOs        :", nrow(busco_df), "\n")
+  cat("Baseline Mean (Q1-3):", round(baseline_hits, 2), "hits\n")
+  cat("10x Threshold       :", round(cutoff_10x, 2), "hits\n")
+  cat("Candidate TE BUSCOs :", nrow(te_candidates), "\n")
+  
+  # 6. File output configuration
+  dir_name <- dirname(file_path)
+  species_prefix <- sub("_vs_softmasked\\.out$", "", basename(file_path))
+  
+  out_all_counts <- file.path(dir_name, paste0(species_prefix, "_copy_numbers_sorted.tsv"))
+  out_candidates <- file.path(dir_name, paste0(species_prefix, "_candidate_TE_associated_buscos.tsv"))
+  out_bed        <- file.path(dir_name, paste0(species_prefix, "_candidate_TE_buscos.bed"))
+  
+  # Write TSVs
+  write.table(busco_df, file = out_all_counts, sep = "\t", quote = FALSE, row.names = FALSE)
+  write.table(te_candidates, file = out_candidates, sep = "\t", quote = FALSE, row.names = FALSE)
+  
+  # 7. Merge candidates with parsed genomic coordinates and write BED
+  if (nrow(te_candidates) > 0) {
+    bed_df <- merge(te_candidates, coord_df, by = "busco_id")
+    
+    # 6-column BED format: chrom, chromStart, chromEnd, name, score, strand
+    bed_df <- data.frame(
+      chrom      = bed_df$chrom,
+      chromStart = bed_df$chromStart,
+      chromEnd   = bed_df$chromEnd,
+      name       = bed_df$busco_id,
+      score      = bed_df$copy_number,
+      strand     = "."
+    )
+    
+    write.table(bed_df, file = out_bed, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+    cat("BED file generated  :", out_bed, "\n")
+  }
+}
+
+invisible(lapply(file_paths, analyze_file))
+
+cat("\n==================================================\n")
+cat("Analysis and BED creation complete!\n")
+cat("==================================================\n")
+```
+find intersect
+```
+module load BEDTools
+
+bedtools intersect \
+  -a 01_hilli/01_hilli_candidate_TE_buscos.bed \
+  -b 01_hilli/01_hilli_repeats.gff3 \
+  -wa -wb \
+  > 01_hilli/01_hilli_busco_te_overlaps.tsv
+```
+
 
 
 # Fig. 4 - Kimura divergence/TE landscape plots
