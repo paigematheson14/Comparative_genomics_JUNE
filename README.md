@@ -1493,9 +1493,244 @@ ggsave(
 )
 ```
 
+# coverage plot thing
+
+```
+#!/bin/bash
+set -e  # Stop script immediately if any command fails
+
+# Define input files
+FASTA="06_megacephala_masked.fa"
+GFF="braker.gff3"
+OUT="06_megacephala.fa.out"
+
+echo "=== Step 1: Index genome and generate whole-genome chrom.sizes ==="
+if [ ! -f "${FASTA}.fai" ]; then
+    samtools faidx "$FASTA"
+fi
+
+# Extract chrom.sizes for the ENTIRE genome (all contigs)
+cut -f1,2 "${FASTA}.fai" > genome.chrom.sizes
+
+if [ ! -s "genome.chrom.sizes" ]; then
+    echo "Error: Could not generate genome.chrom.sizes!"
+    exit 1
+fi
+
+echo "=== Step 2: Create 1 Mb sliding windows across the whole genome ==="
+bedtools makewindows -g genome.chrom.sizes -w 1000000 > windows.bed
+
+echo "=== Step 3: Extract features across the whole genome ==="
+
+# A. Exons from BRAKER GFF3
+awk '
+    BEGIN {OFS="\t"} 
+    $3 == "exon" {print $1, $4-1, $5}
+' "$GFF" > exons.bed
+
+# B. LINEs from RepeatMasker .out
+awk '
+    BEGIN {OFS="\t"} 
+    NR>3 && $11 ~ /^LINE/ {print $5, $6-1, $7}
+' "$OUT" > TE_LINE.bed
+
+# C. LTRs
+awk '
+    BEGIN {OFS="\t"} 
+    NR>3 && $11 ~ /^LTR/ {print $5, $6-1, $7}
+' "$OUT" > TE_LTR.bed
+
+# D. DNA Transposons
+awk '
+    BEGIN {OFS="\t"} 
+    NR>3 && $11 ~ /^DNA/ {print $5, $6-1, $7}
+' "$OUT" > TE_DNA.bed
+
+# E. Rolling Circles (RC)
+awk '
+    BEGIN {OFS="\t"} 
+    NR>3 && $11 ~ /^RC/ {print $5, $6-1, $7}
+' "$OUT" > TE_RC.bed
+
+# F. Unclassified TEs
+awk '
+    BEGIN {OFS="\t"} 
+    NR>3 && $11 ~ /^Unknown/ {print $5, $6-1, $7}
+' "$OUT" > TE_unclassified.bed
+
+echo "=== Step 4: Calculate fractional coverage per window ==="
+bedtools coverage -a windows.bed -b exons.bed > cov_exons.txt
+bedtools coverage -a windows.bed -b TE_LINE.bed > cov_LINE.txt
+bedtools coverage -a windows.bed -b TE_LTR.bed > cov_LTR.txt
+bedtools coverage -a windows.bed -b TE_DNA.bed > cov_DNA.txt
+bedtools coverage -a windows.bed -b TE_RC.bed > cov_RC.txt
+bedtools coverage -a windows.bed -b TE_unclassified.bed > cov_unclassified.txt
+
+echo "=== Step 5: Merge coverages into stygia_whole_genome_density_windows.tsv ==="
+paste cov_exons.txt cov_LINE.txt cov_LTR.txt cov_DNA.txt cov_RC.txt cov_unclassified.txt | \
+awk 'BEGIN {
+    OFS="\t"; 
+    print "chrom", "start", "end", "exon", "LINE", "LTR", "DNA", "RC", "unclassified"
+} 
+{
+    print $1, $2, $3, $7, $14, $21, $28, $35, $42
+}' > stygia_whole_genome_density_windows.tsv
+
+echo "Done! Generated stygia_whole_genome_density_windows.tsv"
+```
+
+Plot on R
+```
+library(tidyverse)
+
+# 1. Read TSV output
+data <- read.table("megacephala.tsv", header = TRUE, sep = "\t")
+
+# 2. Reorder contigs by length (longest to shortest)
+contig_order <- data %>%
+  group_by(chrom) %>%
+  summarise(total_length = max(end)) %>%
+  arrange(desc(total_length)) %>%
+  pull(chrom)
+
+cleaned_levels <- str_replace(contig_order, "^contig0*", "C")
+
+data <- data %>%
+  mutate(
+    chrom = str_replace(chrom, "^contig0*", "C"),
+    chrom = factor(chrom, levels = cleaned_levels)
+  )
+
+# 3. Reshape TE coverage for stacked top track
+te_data <- data %>%
+  select(chrom, start, end, LINE, LTR, DNA, RC, unclassified) %>%
+  rename(
+    `DNA transposon` = DNA,
+    `Rolling circle` = RC,
+    Unclassified = unclassified
+  ) %>%
+  pivot_longer(
+    cols = c(LINE, LTR, `DNA transposon`, `Rolling circle`, Unclassified), 
+    names_to = "Feature", 
+    values_to = "Fraction"
+  ) %>%
+  mutate(Feature = factor(Feature, levels = c("Unclassified", "Rolling circle", "LINE", "LTR", "DNA transposon")))
+
+# 4. Invert exon coverage for bottom track and assign Feature name for Legend
+exon_data <- data %>%
+  select(chrom, start, end, exon) %>%
+  mutate(
+    Exon_Fraction = -1 * exon,
+    Feature = "Exon"
+  )
+
+# 5. Color Palette
+custom_colors <- c(
+  "Unclassified"   = "#C0C0C0", # Silver/Grey
+  "Rolling circle" = "#f0e442", # Yellow
+  "LINE"           = "#009e73", # Dark Green
+  "LTR"            = "#0072b2", # Orange
+  "DNA transposon" = "#e69f00", # Bright Green
+  "Exon"           = "#cc79a7"  # Blue
+)
+
+# 6. Generate Dual-Direction Stacked Area Plot
+m <- ggplot() +
+  # Top Track: Stacked Area for TEs
+  geom_area(data = te_data, aes(x = start / 1e6, y = Fraction, fill = Feature), position = "stack") +
+  
+  # Bottom Track: Inverted Area for Exons
+  geom_area(data = exon_data, aes(x = start / 1e6, y = Exon_Fraction, fill = Feature), alpha = 0.85) +
+  
+  # Baseline (y = 0)
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.4) +
+  
+  # Split panels by chromosome/scaffold
+  facet_grid(~chrom, scales = "free_x", space = "free_x") +
+  
+  # Axes & Manual Scale Settings
+  scale_y_continuous(
+    limits = c(-0.35, 0.8),
+    breaks = c(-0.3, 0, 0.3, 0.7),
+    labels = c("0.3", "0", "0.3", "0.7")
+  ) +
+  scale_fill_manual(
+    values = custom_colors,
+    # STRICT LEGEND ORDER FORCED HERE:
+    breaks = c("LTR", "LINE", "DNA transposon", "Rolling circle", "Unclassified", "Exon")
+  ) +
+  labs(y = "Relative content", x = NULL, fill = NULL) +
+  
+  # Minimalist Publication Theme
+  theme_classic(base_size = 14) +
+  theme(
+    # Clean up facet header boxes
+    strip.background = element_rect(color = NA, fill = "grey95"),
+    strip.text = element_text(face = "bold", size = 14, margin = margin(t = 4, b = 4)),
+    
+    # Larger, crisp axes
+    axis.title.y = element_text(size = 14, face = "bold", margin = margin(r = 10)),
+    axis.text.y  = element_text(size = 14, color = "black"),
+    axis.text.x  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.line.x  = element_blank(),
+    axis.line.y  = element_line(linewidth = 0.4, colour = "black"),
+    
+    # Clean, enlarged legend
+    legend.position = "none",
+    legend.text = element_text(size = 16),
+    legend.key.size = unit(0.5, "cm")
+  ) +
+  guides(
+    fill = guide_legend(
+      nrow = 1,
+      byrow = TRUE
+    )
+  )
+
+m
 
 
 
+# Output plot
+library(patchwork)
+
+b <- b +
+  labs(title = "Calliphora stygia") +
+  theme(
+    plot.title = element_text(
+      size = 16,
+      hjust = 0.5,
+      face = "bold.italic"
+    )
+  )
+
+
+v <- v +
+  labs(title = "Calliphora vicina") +
+  theme(
+    plot.title = element_text(
+      size = 16,
+      hjust = 0.5,
+      face = "bold.italic"
+    )
+  )
+
+m <- m +
+  labs(title = "Chrysomya megacephala") +
+  theme(
+    plot.title = element_text(
+      size = 16,
+      hjust = 0.5,
+      face = "bold.italic"
+    )
+  )
+
+finalplot <- b / v / m
+
+# 7. Save high-resolution publication image
+ggsave("Figure_1A.png", plot = finalplot)
+```
 
 
 
