@@ -448,6 +448,11 @@ cat("\n==================================================\n")
 cat("Analysis and BED creation complete!\n")
 cat("==================================================\n")
 ```
+convert the repeatmasker output to gff (this script is in the repeatmasker repository github) 
+```
+rmOutToGFF3.pl 01_hilli.fa.out > 01_hilli_repeats.gff3
+```
+
 find intersect
 ```
 module load BEDTools
@@ -457,6 +462,8 @@ bedtools intersect \
   -b 01_hilli/01_hilli_repeats.gff3 \
   -wa -wb \
   > 01_hilli/01_hilli_busco_te_overlaps.tsv
+
+cut -f 4 06_megacephala_busco_te_overlaps.tsv | sort -u | wc -l
 ```
 
 
