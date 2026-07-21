@@ -252,117 +252,82 @@ busco \
 cd ../
 done
 ```
-I then ran the following bash script. Note that I only ran this on single-copy, complete BUSCO genes (not duplicated, incomplete, or missing). 
+I then ran the following bash script. This script BLASTs the single copy, complete, BUSCO sequences against it's own genome to see how often they occur.  
 
 ```
 #!/bin/bash
-module load BEDTools
-
-SPECIES=(
-    01_hilli
-    02_quadrimaculata
-    03_stygia
-    04_vicina
-    05_sericata
-    06_megacephala
-)
-
-echo "Species,Total_BUSCOs,BUSCOs_with_TE,Percent_with_TE"
-
-for s in "${SPECIES[@]}"; do
-    echo "Processing $s" >&2
-
-    #build single-copy BUSCO BED from full_table.tsv
-    awk -F'\t' '
-    NR>1 && $2=="Complete" {
-        id=$1
-        if (!(id in count)) {
-            chr[id]=$3
-            s=$4; e=$5
-            if (s=="" || e=="") next
-            start[id] = (s < e) ? s : e
-            end[id]   = (s < e) ? e : s
-        }
-        count[id]++
-    }
-    END {
-        for (id in count)
-            if (count[id]==1) {
-                out = start[id] - 1
-                if (out < 0) out = 0
-                print chr[id], out, end[id], id
-            }
-    }' OFS='\t' "${s}_full_table.tsv" \
-    | sort -k1,1 -k2,2n \
-    > "${s}_busco.sorted.bed"
-
-    #convert RepeatMasker GFF to sorted BED
-    grep -v "^#" "${s}.fa.out.gff" \
-    | awk 'BEGIN{OFS="\t"}{ print $1, $4-1, $5, $3, $6, $7 }' \
-    | sort -k1,1 -k2,2n \
-    > "${s}_TE.sorted.bed"
-
-    #find the intersect
-    bedtools intersect \
-        -a "${s}_busco.sorted.bed" \
-        -b "${s}_TE.sorted.bed" \
-        -wa -wb \
-        > "${s}_BUSCO_TE_overlap.bed"
-
-    #count number of intersects
-    TOTAL_BUSCO=$(wc -l < "${s}_busco.sorted.bed")
-
-    if [ "$TOTAL_BUSCO" -eq 0 ]; then
-        echo "${s},0,0,NA"
-        continue
-    fi
-
-    BUSCO_WITH_TE=$(
-        cut -f1,2,3 "${s}_BUSCO_TE_overlap.bed" \
-        | sort -u \
-        | wc -l
-    )
-
-    PERCENT=$(awk -v a="$BUSCO_WITH_TE" -v b="$TOTAL_BUSCO" \
-        'BEGIN{ printf "%.2f", 100*a/b }')
-
-    echo "${s},${TOTAL_BUSCO},${BUSCO_WITH_TE},${PERCENT}"
-done
-```
-This will give you the number of BUSCOs analysed, how many shared coordinates with TEs, and % of the genome this took up. I also used this information to make the RE content vs genome size plots in Fig. 3. 
-
-I realised that I didn't do the BLAST step from Cook et al., 2024 and associated papers so I went back and did this -
-
-Turn the FASTA genomes into into blastable databases:
-```
-makeblastdb -in 01_hilli.fa -dbtype nucl -parse_seqids -blastdb_version 5 -out 01_hilli_db
-```
-
-Using the TE/BUSCO intersect file generated above, do this:
-```
-cut -f4 06_megacephala_BUSCO_TE_overlap.bed | sort -u > 06_megacephala_TE_associated_busco_ids.txt
-awk 'NR==FNR{ids[$1]; next} $4 in ids' 06_megacephala_TE_associated_busco_ids.txt 06_megacephala_busco.sorted.bed > 06_megacephala_TE_associated_busco.sorted.bed
-bedtools getfasta -fi 06_megacephala.fa -bed 06_megacephala_TE_associated_busco.sorted.bed -name -fo 06_megacephala_TE_associated_busco_seqs.fa
-```
-
-then BLAST them against the fasta
-
-```
-#!/bin/bash
-#SBATCH --job-name=blast_hilli
+#SBATCH --job-name=blast
 #SBATCH --account=uow03920
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=64G
-#SBATCH --time=24:00:00
-#SBATCH --output=blast_hilli_%j.out
-#SBATCH --error=blast_hilli_%j.err
+#SBATCH --mem=256G
+#SBATCH --time=32:00:00
+#SBATCH --output=blast_%j.out
+#SBATCH --error=blast_%j.err
 
-ml BLAST 
+ml BLAST
+ml BEDTools
 
-blastn -query 01_hilli_TE_associated_busco_seqs.fa -db 01_hilli_db \
-  -outfmt 6 -max_target_seqs 50000 -num_threads 8 \
-  -out 01_hilli_busco_blast.out
+for i in 02_quadrimaculata; do 
+
+cd ${i}
+
+#grab coordinates of all complete BUSCOs
+awk -F'\t' 'NR>1 && $2=="Complete" {
+    id=$1
+    if (!(id in count)) {
+        chr[id]=$3
+        s=$4
+        e=$5
+        if (s=="" || e=="") next
+        start[id] = (s < e) ? s : e
+        end[id] = (s < e) ? e : s
+    }
+    count[id]++
+}
+END {
+    for (id in count)
+        if (count[id]==1) {
+            out = start[id] - 1
+            if (out < 0) out = 0
+            print chr[id], out, end[id], id
+        }
+}' OFS='\t' ${i}_full_table.tsv > ${i}_all_single_copy.bed
+
+
+#extract these sequences and turn into a fasta
+bedtools getfasta \
+-fi ${i}_masked.fa \
+-bed ${i}_all_single_copy.bed \
+-name \
+-fo ${i}_all_single_copy.fa
+
+
+#create the BLAST database 
+makeblastdb \
+  -in ${i}_masked.fa \
+  -dbtype nucl \
+  -parse_seqids \
+  -blastdb_version 5 \
+  -out ${i}_softmasked_db
+
+
+#blast the BUSCO sequences against the genome to see how often they occur
+blastn \
+-query ${i}_all_single_copy.fa \
+-db ${i}_softmasked_db \
+-outfmt 6 \
+-max_target_seqs 50000 \
+-num_threads 32 \
+-out ${i}_vs_softmasked.out
+
+
+cd ../
+
+done
 ```
+
+Then, need to parse the BLAST output into a table that shows the copy number of each busco gene within an assembly. Sort this from lowest to highest. Calculate the mean number of BLAST hits for the first three quartiles of the ordered data so that any buscos with unexpectedly high hits (i.e., those in the fourth quartile) are removed from the average calculation -- this is the baseline for expected BLAST hits. as per Sproul, we will use any busco with 10X the expected BLAST hits as putative te-associated buscos. I then used the coordinates of the TEs from gff file and the coordinates of BUSCOs to see if they intersect with TE annotations.
+
 
 
 # Fig. 4 - Kimura divergence/TE landscape plots
