@@ -838,7 +838,7 @@ orthofinder -f proteins -M msa -T iqtree -t 8 -a 4
 I mainly used OrthoFinder to generate files that could be used in CAFE3
 
 ## Gene family expansion and contraction using CAFE3
-### Convert our Newick Tree to Ultramentric tree (chronos method) in R. You need to estimate total root to tip time. I used 30 MYA, as this is when all species shared a common ancestor. This part is done in R. 
+### Convert our Newick Tree to Ultramentric tree (chronos method) in R. You need to estimate total root to tip time. I used 22 MYA, as this is when all species shared a common ancestor. This part is done in R. 
 
 ```
 library(ape)
@@ -854,11 +854,11 @@ ultra_tree <- chronos(tree, lambda = 1, model = "correlated")
 
 #Scale tree so root-to-tip distance = 30 Mya
 tree_age <- max(node.depth.edgelength(ultra_tree))
-ultra_tree$edge.length <- ultra_tree$edge.length * (30 / tree_age)
+ultra_tree$edge.length <- ultra_tree$edge.length * (22 / tree_age)
 
 #Plot and save
-plot(ultra_tree, main = "Ultrametric Tree (Root Scaled to 30 Mya)")
-write.tree(ultra_tree, file = "SpeciesTree_ultrametric_30Mya.txt")  
+plot(ultra_tree, main = "Ultrametric Tree (Root Scaled to 22 Mya)")
+write.tree(ultra_tree, file = "SpeciesTree_ultrametric_22Mya.txt")  
 ``` 
 
 ### Filter the orthogroup gene count file (from OrthoFinder) and modify it for CAFE3
