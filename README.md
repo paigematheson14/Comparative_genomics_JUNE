@@ -1596,7 +1596,7 @@ ggsave(
 )
 ```
 
-# coverage plot thing
+# coverage plot thing (didn't use this)
 
 ```
 #!/bin/bash
